@@ -20,9 +20,17 @@ export default function App(){
 
   async function loadTabs(){
     const htmlUrl = toPubHtml(sheetLink);
+    console.log("Loading tabs from:", htmlUrl); // Debug
     try{
-      const res = await fetch(htmlUrl, { cache:"no-store" });
+      const res = await fetch(htmlUrl, { 
+        cache:"no-store",
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+      });
+      if(!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
       const html = await res.text();
+      console.log("HTML length:", html.length); // Debug
       const found = extractTabs(html, sheetLink);
       if(found.length===0) throw new Error("Ingen faner fundet");
       setTabs(found);
@@ -31,24 +39,34 @@ export default function App(){
       setRows([]);
     }catch(e){
       console.error(e);
-      alert("Kunne ikke hente faner. Brug 'Publish to the web' linket (CSV).");
+      alert(`Kunne ikke hente faner: ${e.message}\n\nSørg for at bruge 'Publish to the web' linket (CSV format).`);
     }
   }
 
   async function loadRowsForActive(){
     const tab = tabs.find(t => String(t.gid)===String(activeGid));
     if(!tab) return;
+    console.log("Loading rows for tab:", tab); // Debug
     try{
-      const res = await fetch(tab.csvUrl, { cache:"no-store" });
+      const res = await fetch(tab.csvUrl, { 
+        cache:"no-store",
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+      });
+      if(!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
       const text = await res.text();
+      console.log("CSV length:", text.length, "First 200 chars:", text.substring(0, 200)); // Debug
       const parsed = parseCSV(text).rows;
+      console.log("Parsed rows:", parsed.length, "First few:", parsed.slice(0, 3)); // Debug
       const start = findDataStart(parsed);
+      console.log("Data starts at row:", start); // Debug
       setRows(parsed.slice(start));
       setCategory("");
       setQ("");
     }catch(e){
       console.error(e);
-      alert("Kunne ikke hente CSV for fanen.");
+      alert(`Kunne ikke hente CSV for fanen: ${e.message}`);
     }
   }
 
@@ -136,7 +154,11 @@ export default function App(){
 
 // -------- Helpers --------
 function toPubHtml(csvUrl){
-  return csvUrl.replace(/\/pub\?[^#]+$/, "/pubhtml");
+  // Convert CSV publish URL to HTML version
+  let htmlUrl = csvUrl.replace(/\/pub\?[^#]*$/, "/pubhtml");
+  // Remove any existing gid parameter from HTML URL
+  htmlUrl = htmlUrl.replace(/[?&]gid=\d+/, "");
+  return htmlUrl;
 }
 function toCsv(baseCsv, gid){
   let url = baseCsv.replace(/(&gid=\d+)/, "");
@@ -146,21 +168,50 @@ function toCsv(baseCsv, gid){
 function extractTabs(html, baseCsv){
   const out = []; const seen = new Set();
   const patterns = [
-    /data-gid="(\d+)".*?<span[^>]*class="sheet-button-name"[^>]*>([^<]+)/g,
-    /data-gid="(\d+)".*?class="docs-sheet-tab-name"[^>]*>([^<]+)/g,
-    /aria-controls="sheet-tab-(\d+)".*?aria-label="([^"]+)"/g
+    // Modern Google Sheets patterns
+    /<div[^>]*data-gid="(\d+)"[^>]*>.*?<span[^>]*class="[^"]*sheet-button-name[^"]*"[^>]*>([^<]+)<\/span>/gs,
+    /<div[^>]*aria-controls="sheet-tab-(\d+)"[^>]*aria-label="([^"]+)"/g,
+    /data-gid="(\d+)"[^>]*>.*?class="docs-sheet-tab-name"[^>]*>([^<]+)</gs,
+    // Fallback patterns
+    /gid=(\d+)[^>]*>([^<]+)</g,
+    /"gid":(\d+)[^}]*"name":"([^"]+)"/g
   ];
+  
+  console.log("HTML snippet:", html.substring(0, 1000)); // Debug
+  
   for(const re of patterns){
     let m; let any=false;
     while((m = re.exec(html))!==null){
       const gid=m[1], name=m[2].trim();
+      console.log("Found tab:", gid, name); // Debug
       if(seen.has(gid)) continue; seen.add(gid);
       out.push({ gid, name, csvUrl: toCsv(baseCsv, gid) });
       any=true;
     }
     if(any) break;
   }
+  
+  // If no tabs found, try to extract from sheet names in HTML
+  if(out.length === 0) {
+    const sheetNamePattern = /<title>([^<]+)<\/title>/i;
+    const titleMatch = html.match(sheetNamePattern);
+    if(titleMatch) {
+      const title = titleMatch[1];
+      // Try to extract sheet names from title or other locations
+      const namePattern = /([^-]+)/g;
+      let nameMatch;
+      while((nameMatch = namePattern.exec(title)) !== null) {
+        const name = nameMatch[1].trim();
+        if(name && name.length > 2) {
+          out.push({ gid: "0", name, csvUrl: baseCsv });
+          break;
+        }
+      }
+    }
+  }
+  
   if(out.length===0){ out.push({ gid:"0", name:"Fane 1", csvUrl: baseCsv }); }
+  console.log("Final tabs:", out); // Debug
   return out;
 }
 
