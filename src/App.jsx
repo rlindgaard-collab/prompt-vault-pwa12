@@ -153,6 +153,38 @@ export default function App(){
 }
 
 // -------- Helpers --------
+async function detectTabsByGid(baseCsv) {
+  const tabs = [];
+  const commonGids = ["0", "1", "2", "3", "4", "5"]; // Test common GIDs
+  
+  for(const gid of commonGids) {
+    try {
+      const testUrl = toCsv(baseCsv, gid);
+      const res = await fetch(testUrl, { 
+        cache: "no-store",
+        headers: { 'User-Agent': 'Mozilla/5.0' }
+      });
+      
+      if(res.ok) {
+        const text = await res.text();
+        // Check if we got actual data (not empty or error)
+        if(text.length > 10 && !text.includes("Error") && !text.includes("not found")) {
+          tabs.push({ 
+            gid, 
+            name: `Ark ${tabs.length + 1}`, 
+            csvUrl: testUrl 
+          });
+          console.log(`Found working GID: ${gid}`);
+        }
+      }
+    } catch(e) {
+      // Ignore errors for individual GIDs
+    }
+  }
+  
+  return tabs;
+}
+
 function toPubHtml(csvUrl){
   // Convert CSV publish URL to HTML version
   let htmlUrl = csvUrl.replace(/\/pub\?[^#]*$/, "/pubhtml");
