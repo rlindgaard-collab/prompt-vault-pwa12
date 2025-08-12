@@ -32,6 +32,21 @@ export default function App(){
       const html = await res.text();
       console.log("HTML length:", html.length); // Debug
       const found = extractTabs(html, sheetLink);
+      
+      // If we only found 1 tab, try GID detection as fallback
+      if(found.length <= 1) {
+        console.log("Only found 1 tab from HTML, trying GID detection...");
+        const gidTabs = await detectTabsByGid(sheetLink);
+        if(gidTabs.length > 1) {
+          console.log("Found", gidTabs.length, "tabs via GID detection");
+          setTabs(gidTabs);
+          setActiveGid(gidTabs[0].gid);
+          setCategory("");
+          setRows([]);
+          return;
+        }
+      }
+      
       if(found.length===0) throw new Error("Ingen faner fundet");
       setTabs(found);
       setActiveGid(found[0].gid);
